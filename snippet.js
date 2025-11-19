@@ -30,7 +30,7 @@
 
 	const API = getApiBases();
 	let preferHtmlForDataImages = true;
-	let requestDelayMs = 5000;           // default 5 seconds between requests
+	let requestDelayMs = 0;              // default: no delay (headless mode)
 	let suppressTocWithAnchors = true;   // default: do not include ToC with anchor links
 
 	// Common ID extraction logic
@@ -582,286 +582,71 @@
 		return lines.length > 0 ? lines.join('\n') + '\n' : '';
 	};
 
-	const saveFile = async (filename, data) => {
-		const blob = new Blob(["\uFEFF", data], { type: 'application/octet-stream;charset=utf-8' });
-
+	const copyToClipboard = async (text) => {
 		try {
-			if (window.showSaveFilePicker) {
-				const handle = await window.showSaveFilePicker({ suggestedName: filename });
-				const writable = await handle.createWritable();
-				await writable.write(blob);
-				await writable.close();
-				return;
-			}
-		} catch {}
-
-		const url = URL.createObjectURL(blob);
-		const a = Object.assign(document.createElement('a'), {
-			href: url, download: filename, rel: 'noopener', style: 'display:none'
-		});
-		document.body.appendChild(a);
-		requestAnimationFrame(() => {
-			a.click();
-			setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 10000);
-		});
-	};
-
-	function buildModal() {
-		const wrap = document.createElement('div');
-		const { id: currentId } = getPageContext();
-
-		wrap.innerHTML = `
-			<style>
-				#cdBackdrop{position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:2147483646}
-				#cdCard{
-					position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
-					width:640px;max-width:95%;
-					background:#fff;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.25);
-					z-index:2147483647;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-					display:flex;flex-direction:column;max-height:90vh;overflow:hidden
-				}
-				#cdCard, #cdCard *, #cdCard *::before, #cdCard *::after { box-sizing: border-box }
-				#cdCard header{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #eee}
-				#cdCard h3{margin:0;font-size:15px;font-weight:600}
-				#cdCard form{flex:1 1 auto;overflow:auto;overflow-x:hidden;padding:12px 14px}
-				#cdCard label{display:block;font-size:12px;color:#374151;margin:8px 0 4px}
-				#cdCard input[type="text"],#cdCard input[type="number"],#cdCard select{
-					width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;
-				}
-				#cdInput{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-				#cdRow{display:flex;gap:8px;flex-wrap:wrap}
-				#cdRow>div{flex:1;min-width:160px;min-height:1px}
-				#cdActions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;align-items:center;position:sticky;bottom:0;background:#fff;padding-top:8px}
-				#cdActions button{padding:8px 12px;border-radius:8px;border:1px solid #d1d5db;background:#f9fafb;cursor:pointer}
-				#cdActions button.primary{background:#111827;color:#fff;border-color:#111827}
-				#cdClose{all:unset;cursor:pointer;font-size:18px;line-height:1}
-				#cdStatus{display:flex;align-items:center;gap:8px;font-size:12px;color:#374151;visibility:hidden}
-				.cdSpinner{width:14px;height:14px;border:2px solid #e5e7eb;border-top-color:#111827;border-radius:50%;animation:cdSpin 0.8s linear infinite}
-				@keyframes cdSpin{to{transform:rotate(360deg)}}
-				#cdSummary{margin-top:12px;display:none}
-				#cdSummary table{width:100%;border-collapse:collapse;font-size:12px}
-				#cdSummary th,#cdSummary td{padding:4px 6px;text-align:left;border-bottom:1px solid #e5e7eb}
-				#cdSummary th{font-weight:600;background:#f9fafb}
-				#cdNote{font-size:11px;color:#6b7280;margin-top:8px}
-				#cdCheck{display:flex;align-items:center;gap:8px}
-			</style>
-			<div id="cdBackdrop"></div>
-			<div id="cdCard" role="dialog" aria-modal="true">
-				<header><h3>confDump</h3><button id="cdClose" title="Close">×</button></header>
-				<form>
-					<label>Page URL or ID</label>
-					<input id="cdInput" type="text" placeholder="123456789 or https://…/wiki/spaces/KEY/pages/123456789/Title" value="${currentId || ''}">
-					<div id="cdRow">
-						<div><label>Format</label><select id="cdFormat"><option value="markdown" selected>markdown</option><option value="json">json</option></select></div>
-						<div><label>Include child pages</label><select id="cdChildren"><option value="no" selected>no</option><option value="yes">yes</option></select></div>
-						<div><label>Child depth</label><input id="cdDepth" type="number" min="1" value="1"></div>
-					</div>
-					<div id="cdRow">
-						<div><label>Comments</label><select id="cdComments"><option value="both" selected>both</option><option value="footer">footer only</option><option value="inline">inline only</option><option value="none">none</option></select></div>
-						<div><label>Thread depth</label><select id="cdThread"><option value="all" selected>all replies</option><option value="root">root only</option></select></div>
-						<div id="cdCheck"><input id="cdIncludeResolved" type="checkbox"><label for="cdIncludeResolved">Include resolved inline comments</label></div>
-					</div>
-					<div id="cdRow">
-						<div id="cdCheck"><input id="cdEmbedImages" type="checkbox"><label for="cdEmbedImages">Embed images as data URLs (Markdown)</label></div>
-						<div id="cdCheck"><input id="cdUseHtmlForData" type="checkbox" checked><label for="cdUseHtmlForData">Use HTML &lt;img&gt; for data URLs</label></div>
-						<div id="cdCheck"><input id="cdNoToc" type="checkbox" checked><label for="cdNoToc">Do not include ToC with anchor links</label></div>
-					</div>
-					<div id="cdRow">
-						<div><label>Delay between requests (seconds)</label><input id="cdRequestDelay" type="number" min="0" value="5"></div>
-					</div>
-					<div id="cdActions">
-						<div id="cdStatus"><div class="cdSpinner"></div><span id="cdStatusText">Working…</span></div>
-						<button type="button" id="cdCancel">Cancel</button>
-						<button type="submit" class="primary" id="cdSubmit">Export</button>
-					</div>
-					<div id="cdSummary"></div>
-					<div id="cdNote">Uses same origin ${API.v1} and ${API.v2} when available. Exports only what you can view.</div>
-				</form>
-			</div>
-		`;
-
-		document.body.appendChild(wrap);
-
-		const [statusWrap, statusText, summaryBox, submitBtn] = ['#cdStatus', '#cdStatusText', '#cdSummary', '#cdSubmit'].map(s => wrap.querySelector(s));
-
-		const setBusy = (on, text) => {
-			statusWrap.style.visibility = on ? 'visible' : 'hidden';
-			if (text) statusText.textContent = text;
-			submitBtn.disabled = on;
+			await navigator.clipboard.writeText(text);
+			return true;
+		} catch {
+			// Fallback for older browsers
+			const textarea = document.createElement('textarea');
+			textarea.value = text;
+			textarea.style.position = 'fixed';
+			textarea.style.left = '-999999px';
+			document.body.appendChild(textarea);
+			textarea.select();
+			const success = document.execCommand('copy');
+			document.body.removeChild(textarea);
+			return success;
+		}
+	};	// Headless export with default settings
+	const exportCurrentPage = async (options = {}) => {
+		const defaults = {
+			embedImages: true,
+			includeResolved: true,
+			useHtmlForData: true,
+			noToc: true,
+			includeChildren: false,
+			commentsWhere: 'both',
+			threadDepth: 'all'
 		};
-
-		const setStatus = text => statusText.textContent = text;
-
-		const showSummary = obj => {
-			const rows = [
-				['title', obj.title], ['id', obj.id], ['space', obj.space || ''], ['version', obj.version || '']
-			];
-			if (obj.children_exported != null) rows.push(['children_exported', obj.children_exported]);
-			if (obj.comments) rows.push(['footer_comments', obj.comments.footer], ['inline_comments', obj.comments.inline]);
-			rows.push(['file', obj.filename]);
-
-			summaryBox.innerHTML = `<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>${rows.map(([k,v])=>`<tr><td>${k}</td><td>${String(v)}</td></tr>`).join('')}</tbody></table>`;
-			summaryBox.style.display = 'block';
-		};
-
-		const close = () => wrap.remove();
-
-		wrap.querySelector('#cdBackdrop').onclick = close;
-		wrap.querySelector('#cdClose').onclick = close;
-		wrap.querySelector('#cdCancel').onclick = close;
-
-		wrap.querySelector('form').onsubmit = async e => {
-			e.preventDefault();
-
-			const getVal = id => wrap.querySelector(id).value;
-			const getChecked = id => wrap.querySelector(id).checked;
-
-			const [
-				input, format, includeChildren, depth,
-				commentsWhere, threadDepth, includeResolved,
-				embedImages, noToc, requestDelaySec
-			] = [
-				getVal('#cdInput').trim(),
-				getVal('#cdFormat'),
-				getVal('#cdChildren') === 'yes',
-				Math.max(1, Number(getVal('#cdDepth')) || 1),
-				getVal('#cdComments'),
-				getVal('#cdThread'),
-				getChecked('#cdIncludeResolved'),
-				getChecked('#cdEmbedImages'),
-				getChecked('#cdNoToc'),
-				Math.max(0, Number(getVal('#cdRequestDelay')) || 0)
-			];
-
-			preferHtmlForDataImages = getChecked('#cdUseHtmlForData');
-			suppressTocWithAnchors = noToc;
-			requestDelayMs = requestDelaySec * 1000;
-
-			let pageId;
-			try { pageId = parseInput(input); } catch (err) { alert(err.message); return; }
-			if (!/^\d+$/.test(pageId)) { alert('Could not determine Confluence page ID on this view.'); return; }
-
-			try {
-				setBusy(true, 'Fetching page…');
-				const page = await fetchPage(pageId);
-				const summary = {
-					id: page.id,
-					title: page.title || '',
-					space: page.space?.key || '',
-					version: page.version?.number || ''
+		
+		const opts = { ...defaults, ...options };
+		
+		preferHtmlForDataImages = opts.useHtmlForData;
+		suppressTocWithAnchors = opts.noToc;
+		
+		const { id: pageId } = getPageContext();
+		if (!pageId || !/^\d+$/.test(pageId)) {
+			throw new Error('Could not determine Confluence page ID on this view.');
+		}
+		
+		try {
+			const page = await fetchPage(pageId);
+			let md = await pageToMarkdown(page, opts.embedImages);
+			
+			const wantComments = opts.commentsWhere !== 'none';
+			if (wantComments) {
+				const commentOpts = { 
+					where: opts.commentsWhere, 
+					thread: opts.threadDepth, 
+					includeResolved: opts.includeResolved 
 				};
-
-				const wantComments = commentsWhere !== 'none';
-				const commentOpts = { where: commentsWhere, thread: threadDepth, includeResolved };
-				const safeTitle = (page.title || `page-${page.id}`).replace(/[^\w.-]+/g, '_').slice(0, 120);
-
-				if (format === 'markdown') {
-					let md = await pageToMarkdown(page, embedImages);
-					let comments;
-					if (wantComments) {
-						setStatus('Fetching comments…');
-						comments = await fetchComments(pageId, commentOpts);
-						if (comments) md += await commentsToMarkdown(comments, embedImages);
-					}
-
-					const filename = `${safeTitle}.${page.id}.md`;
-					await saveFile(filename, md);
-					summary.filename = filename;
-
-					let childrenExported = 0;
-					if (includeChildren) {
-						let layer = [{ id: pageId, level: 0 }];
-						const seen = new Set([String(pageId)]);
-
-						while (layer.length) {
-							const next = [];
-							for (const node of layer) {
-								if (node.level >= depth) continue;
-								setStatus(`Fetching children at depth ${node.level + 1}…`);
-								const kids = await fetchChildrenV1(node.id);
-
-								for (const k of kids) {
-									if (seen.has(String(k.id))) continue;
-									seen.add(String(k.id));
-									next.push({ id: k.id, level: node.level + 1 });
-
-									const childPage = await fetchPage(k.id);
-									let childMd = await pageToMarkdown(childPage, embedImages);
-									if (wantComments) {
-										const childComments = await fetchComments(k.id, commentOpts);
-										if (childComments) childMd += await commentsToMarkdown(childComments, embedImages);
-									}
-									const childSafe = (childPage.title || `page-${childPage.id}`).replace(/[^\w.-]+/g, '_').slice(0, 120);
-									await saveFile(`${childSafe}.${childPage.id}.md`, childMd);
-									// Use configured delay between child exports (0 is allowed)
-									if (requestDelayMs > 0) {
-										await sleep(requestDelayMs);
-									}
-									childrenExported++;
-								}
-							}
-							layer = next;
-						}
-						summary.children_exported = childrenExported;
-					}
-
-					if (wantComments && comments) summary.comments = { footer: comments.footer.length, inline: comments.inline.length };
-					setBusy(false);
-					showSummary(summary);
-				} else { // JSON format
-					const payload = {
-						meta: { exportedAt: new Date().toISOString(), origin: location.origin, apiBaseV1: API.v1, apiBaseV2: API.v2 },
-						page: {
-							id: page.id, title: page.title, space: page.space, version: page.version, ancestors: page.ancestors, _links: page._links,
-							body: { view: page.body?.view?.value || '', storage: page.body?.storage?.value || '', atlas_doc_format: page.body?.atlas_doc_format || null },
-							labels: page.metadata?.labels || null
-						}
-					};
-
-					let comments;
-					if (wantComments) {
-						setStatus('Fetching comments…');
-						comments = await fetchComments(pageId, commentOpts);
-						payload.comments = comments;
-					}
-
-					if (includeChildren) {
-						setStatus('Fetching children…');
-						const kids = await fetchChildrenV1(pageId);
-						const children = [];
-						for (const k of kids) {
-							const full = await fetchPage(k.id);
-							const child = {
-								id: full.id, title: full.title, version: full.version, space: full.space, _links: full._links,
-								body: { view: full.body?.view?.value || '', storage: full.body?.storage?.value || '', atlas_doc_format: full.body?.atlas_doc_format || null }
-							};
-							if (wantComments) child.comments = await fetchComments(k.id, commentOpts);
-							children.push(child);
-						}
-						payload.children = children;
-						summary.children_exported = payload.children.length;
-					}
-
-					const filename = `${safeTitle}.${page.id}.json`;
-					await saveFile(filename, JSON.stringify(payload, null, 2));
-					summary.filename = filename;
-
-					if (wantComments && comments) summary.comments = { footer: comments.footer.length, inline: comments.inline.length };
-					setBusy(false);
-					showSummary(summary);
+				const comments = await fetchComments(pageId, commentOpts);
+				if (comments) {
+					md += await commentsToMarkdown(comments, opts.embedImages);
 				}
-			} catch (err) {
-				setBusy(false);
-				console.error('confDump error:', err);
-				alert('confDump error: ' + (err?.message || String(err)));
 			}
-		};
-	}
-
-	window.confDump = function confDump() {
-		try { buildModal(); } catch (e) { alert(e.message); }
+			
+			await copyToClipboard(md);
+			console.log('✓ Markdown copied to clipboard');
+			return { success: true, pageId, title: page.title };
+		} catch (err) {
+			console.error('confDump error:', err);
+			throw err;
+		}
 	};
 
-	confDump();
-	console.log('Ready: confDump()');
+	window.confDump = exportCurrentPage;
+
+	console.log('Ready: window.confDump() - Exports current page to clipboard');
 })();
