@@ -1,1 +1,1 @@
-javascript:(async()=>{try{const r=await fetch('https://raw.githubusercontent.com/tusharpandey13/confluence-export/main/snippet.js');const c=await r.text();eval(c);await window.confDump();}catch(e){console.error('confDump error:',e);}})();
+javascript:(async()=>{try{const r=await fetch('https://raw.githubusercontent.com/tusharpandey13/confluence-export/main/snippet.js');const c=await r.text();eval(c);await window.confDump();}catch(e){console.error('confDump error:',e);}})()
